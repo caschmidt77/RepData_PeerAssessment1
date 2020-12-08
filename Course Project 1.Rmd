@@ -1,0 +1,159 @@
+---
+title: "Reproducible Research Course Project 1"
+author: "Chris Schmidt"
+date: "08/12/2020"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+
+### Step 1 - Read in data ###
+
+To commence the data analysis, following forking of project from github, it is necessary
+to load the relevant R packages for transformation and analysis.  The data must then be extracted
+to allow the by unzipping the files and reading them into an R object.
+In this project I utilise the data.table package, with fread being the function used
+to read .csv files to an R object.
+
+```{r Preliminary, include=FALSE}
+library(tidyverse)
+library(data.table)
+library(ggplot2)
+library(xtable)
+```
+
+```{r Step 1 Code}
+unzip("./activity.zip", exdir = "./data")
+data <- fread(input = "./data//activity.csv")
+```
+
+
+### Step 2 - Histogram of total number of steps taken each day ###
+
+To complete this step, I have first calculated the steps for each data using data.table,
+and stored this as hist_data.  ggplot2 was then used with a geom_col and appropriate
+titles to display the required histogram.
+
+```{r Step 2 Code, fig.height=4}
+daily_data <- data[, .(`daily_steps` = sum(steps, na.rm = TRUE)), by = date]
+
+plot1 <- ggplot(data = daily_data, mapping = aes(x = date, y = daily_steps))
+plot1 + geom_col() +
+        ggtitle("Total Daily Steps", ) + xlab("Date") + ylab("Total Steps") +
+        theme(plot.title = element_text(face = "bold", size = 18, hjust = 0.5))
+```
+
+
+### Step 3 - Mean and median of number of steps taken each day ###
+
+```{r Step 3 Code}
+daily_data[, .(`Mean Daily Steps` = mean(daily_steps, na.rm = TRUE),
+         `Median Daily Steps` = median(daily_steps, na.rm = TRUE))]
+```
+
+
+### Step 4 - Time series plot of the average number of steps taken ###
+
+To calculate these results it is necessary to process the data so that it is grouped
+by time interval, which has been achieved using the `by = x` syntax in the data.table
+package.  This data has then been plotted using the ggplot 2 package and the geom_line()
+function.
+
+```{r Step 4 Code, fig.height=5}
+interval_data <- data[, .(`interval_average` = mean(steps, na.rm = TRUE)), by = interval]
+plot2 <- ggplot(data = interval_data, mapping = aes(x=interval, y = interval_average))
+plot2 + geom_line() +
+        ggtitle("Mean Steps by Time Interval") + xlab("Time") + ylab("Mean Steps") +
+        theme(plot.title = element_text(face = "bold", size = 18, hjust = 0.5))
+```
+
+
+### Step 5 - Calculate the five minute interval that on average contains the maximum number of steps ###
+
+This is a simple case of using the which.max function to caculate the row of the interval_data object
+which has the largest number of average steps.  This has then been returned in a statement by using the
+paste function.
+
+```{r Step 5 Code}
+max_interval <- which.max(interval_data[, `interval_average`])
+paste ("5 minute interval with most average steps is", interval_data[max_interval, interval])
+```
+
+
+### Step 6 - Code to describe a strategy for imputing missing data ###
+
+In order to find the number of rows with NA in the steps column, we simply use the function
+is.na on the relevant vector and wrap it in the sum function.
+
+```{r Step 6a Code}
+nasteps <- sum(is.na(data$steps))
+```
+
+This result tells us that there are `r nasteps` NAs in the steps column in the raw dataset.
+
+Missing data (NAs) has been imputed with the interval mean, which has already been
+calculated in the interval_data object, and updating the steps in the data table
+with this mean value.  I note some days also have "0" values for steps, but no attempt
+is made to impute this data, as legitimate "0" values for steps also appear in the data,
+and repairing the data in this way is beyond the scope of the assignment.
+
+This has been achieved by joining the interval_data DT to the data DT using data.table's
+`on = ` syntax.  The result has been stored in a new DT imputed_data to clearly identify
+that it is no longer the raw data which is being shown in the steps column.
+
+The following line of code identifies where an NA value exists in the steps column,
+an updates it with the (rounded) interval average (as steps is an integer value).
+
+This work has been check by calculating by testing is.na for the imputed_data$steps vector,
+which returns 0 (ie. TRUE on 0 rows).
+
+```{r Step 6b Code}
+imputed_data <- data[interval_data, on = "interval"]
+imputed_data[is.na(steps), steps := round(interval_average,0)]
+sum(is.na(imputed_data$steps))
+```
+
+
+### Step 7 - Histogram of the total number of steps taken each day after missing values imputed ###
+
+This is completed using the imputed_data object and following the same strategy outlined
+for the original histogram generated using the raw data only.
+
+```{r Step 7 Code}
+imputed_daily_data <- imputed_data[, .(daily_steps = sum(steps)), by = date]
+plot3 <- ggplot(data = imputed_daily_data, mapping = aes(x = date, y = daily_steps))
+plot3 + geom_col() +
+        labs(title = "Total Steps by Date", subtitle = "NB: Missing values have been imputed") +
+        xlab("Date") + ylab("Total Daily Steps") +
+        theme(plot.title = element_text(face = "bold", size = 18, hjust = 0.5),
+              plot.subtitle = element_text(face = "italic", size = 14, hjust = 0.5))
+```
+
+
+### Step 8 - Comparison of weekday and weekend activity levels
+
+To complete this step the imputed_data object has been transformed by adding a factor variable
+denoting each observation as belonging to either "Weekday" or "Weekend".  This was achieved
+through use of an intermediate step of adding a day variable for each observation, derived
+from the date.
+
+Mean steps for each discrete interval were then calculated and grouped according to whether
+the observation were of weekdays or weekend days.
+
+Finally this data is plotted using the ggplot package, with geom_line and by constructing
+separate panels for weekdays and weekend days using the facet_wrap function.
+
+```{r Step 8 Code, fig.height=8}
+imputed_data[, `:=` (day = weekdays(date), weekday_flag = as.factor("Weekday"))]
+imputed_data[day %in% c("Saturday", "Sunday"), weekday_flag := as.factor("Weekend")]
+imputed_interval_data <- imputed_data[, .(interval_average = mean(steps)), by = .(interval, weekday_flag)]
+plot4 <- ggplot(data = imputed_interval_data, mapping = aes(x=interval, y = interval_average))
+plot4 + geom_line() + facet_wrap(.~weekday_flag, nrow = 2) +
+        labs(title = "Average Steps by Time Interval", subtitle = "NB: Missing values have been imputed") +
+        xlab("Interval (Time of Day)") + ylab("Average Steps") +
+        theme(plot.title = element_text(face = "bold", size = 18, hjust = 0.5),
+              plot.subtitle = element_text(face = "italic", size = 14, hjust = 0.5))
+```
+
+
